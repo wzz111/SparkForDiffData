@@ -7,7 +7,6 @@ import scala.Tuple2;
 import util.FileUtil;
 
 import java.util.Arrays;
-import java.util.Iterator;
 
 public class WordCount {
     public static void main(String[] args) {
@@ -50,17 +49,20 @@ public class WordCount {
         // function，通常，如果比较简单，则创建指定Function的匿名内部类
         // 但是如果function比较复杂，则会单独创建一个类，作为实现这个function接口的类
 
+
         // 先将每一行拆分成单个的单词
         // FlatMapFunction，有两个泛型参数，分别代表了输入和输出类型
         // 我们这里呢，输入肯定是String，因为是一行一行的文本，输出，其实也是String，因为是每一行的文本
         // 这里先简要介绍flatMap算子的作用，其实就是，将RDD的一个元素，给拆分成一个或多个元素
         JavaRDD<String> words = lines.flatMap(new FlatMapFunction<String, String>() {
+
             private static final long serialVersionUID = 1L;
 
             @Override
-            public Iterator<String> call(String line) throws Exception {
-                return Arrays.asList(line.split(" ")).iterator();
+            public Iterable<String> call(String line) throws Exception {
+                return Arrays.asList(line.split(" "));
             }
+
         });
 
         // 接着，需要将每一个单词，映射为(单词, 1)的这种格式
