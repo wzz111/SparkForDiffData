@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="18236176-b8eb-4dc3-99de-dddcde0198cc" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/DataCompareDiff.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/DataCompareDiff.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/TestDemo.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/TestDemo.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/util/FileUtil.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/util/FileUtil.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/DataCompareDiff$1.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/DataCompareDiff$1.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/DataCompareDiff$2.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/DataCompareDiff$3.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/DataCompareDiff$4.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/DataCompareDiff.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/DataCompareDiff.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/TestDemo.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/TestDemo.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/WordCount$1.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/WordCount$1.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/WordCount$2.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/WordCount$2.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/WordCount$3.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/WordCount$3.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/WordCount$4.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/WordCount$4.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/WordCount.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/WordCount.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/util/FileUtil$1.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/util/FileUtil$1.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/util/FileUtil$2.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/util/FileUtil$2.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/classes/util/FileUtil.class" beforeDir="false" afterPath="$PROJECT_DIR$/target/classes/util/FileUtil.class" afterDir="false" />
+    </list>
+    <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="CodeStyleSettingsInfer">
+    <option name="done" value="true" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="ROOT_SYNC" value="DONT_SYNC" />
+  </component>
+  <component name="MavenImportPreferences">
+    <option name="generalSettings">
+      <MavenGeneralSettings>
+        <option name="localRepository" value="D:\.m2\repository" />
+        <option name="mavenHome" value="D:/ideaIU-2019/apache-maven-3.6.3-bin/apache-maven-3.6.3" />
+        <option name="userSettingsFile" value="D:\ideaIU-2019\apache-maven-3.6.3-bin\apache-maven-3.6.3\conf\settings.xml" />
+      </MavenGeneralSettings>
+    </option>
+    <option name="importingSettings">
+      <MavenImportingSettings>
+        <option name="importAutomatically" value="true" />
+        <option name="jdkForImporter" value="1.8" />
+        <option name="vmOptionsForImporter" value="-Xmx768m" />
+      </MavenImportingSettings>
+    </option>
+  </component>
+  <component name="MavenRunner">
+    <option name="jreName" value="1.8" />
+  </component>
+  <component name="ProjectCodeStyleSettingsMigration">
+    <option name="version" value="1" />
+  </component>
+  <component name="ProjectId" id="23aPKtIuY3yzlYCkTyCOwPUJkOg" />
+  <component name="PropertiesComponent">
+    <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="aspect.path.notification.shown" value="true" />
+    <property name="last_opened_file_path" value="D:/git/install/Git/bin/git.exe" />
+    <property name="node.js.detected.package.eslint" value="true" />
+    <property name="node.js.detected.package.tslint" value="true" />
+    <property name="node.js.path.for.package.eslint" value="project" />
+    <property name="node.js.path.for.package.tslint" value="project" />
+    <property name="node.js.selected.package.eslint" value="(autodetect)" />
+    <property name="node.js.selected.package.tslint" value="(autodetect)" />
+    <property name="project.structure.last.edited" value="Problems" />
+    <property name="project.structure.proportion" value="0.15" />
+    <property name="project.structure.side.proportion" value="0.20364416" />
+    <property name="settings.editor.selected.configurable" value="vcs.Git" />
+  </component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\user\Desktop\秋招\国泰\项目\Demo\SparkForDiffData\src\main\java" />
+      <recent name="C:\Users\user\Desktop\秋招\国泰\项目\Demo\SparkForDiffData\src\main\java\util" />
+    </key>
+  </component>
+  <component name="RunDashboard">
+    <option name="ruleStates">
+      <list>
+        <RuleState>
+          <option name="name" value="ConfigurationTypeDashboardGroupingRule" />
+        </RuleState>
+        <RuleState>
+          <option name="name" value="StatusDashboardGroupingRule" />
+        </RuleState>
+      </list>
+    </option>
+  </component>
+  <component name="RunManager" selected="Application.TestDemo">
+    <configuration name="DataCompareDiff" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="ALTERNATIVE_JRE_PATH" value="1.8" />
+      <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
+      <option name="MAIN_CLASS_NAME" value="DataCompareDiff" />
+      <module name="spark" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="TestBroadCast" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="TestBroadCast" />
+      <module name="spark" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="TestDemo" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="TestDemo" />
+      <module name="spark" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="WordCount" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="WordCount" />
+      <module name="spark" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <list>
+      <item itemvalue="Application.DataCompareDiff" />
+      <item itemvalue="Application.WordCount" />
+      <item itemvalue="Application.TestBroadCast" />
+      <item itemvalue="Application.TestDemo" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Application.TestDemo" />
+        <item itemvalue="Application.DataCompareDiff" />
+        <item itemvalue="Application.WordCount" />
+        <item itemvalue="Application.TestBroadCast" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SvnConfiguration">
+    <configuration />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="18236176-b8eb-4dc3-99de-dddcde0198cc" name="Default Changelist" comment="" />
+      <created>1641969163210</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1641969163210</updated>
+      <workItem from="1641969164829" duration="583000" />
+      <workItem from="1641969789131" duration="1075000" />
+      <workItem from="1641970900158" duration="82000" />
+      <workItem from="1641970985758" duration="1391000" />
+      <workItem from="1641972515227" duration="827000" />
+      <workItem from="1641973442516" duration="209000" />
+      <workItem from="1641973935193" duration="4871000" />
+      <workItem from="1641987413958" duration="8486000" />
+      <workItem from="1642038072027" duration="3013000" />
+      <workItem from="1642042485918" duration="337000" />
+      <workItem from="1642042975561" duration="641000" />
+      <workItem from="1642043936944" duration="1248000" />
+      <workItem from="1642052249466" duration="13175000" />
+      <workItem from="1642084277020" duration="3766000" />
+      <workItem from="1642121342938" duration="4750000" />
+      <workItem from="1642126122515" duration="8363000" />
+      <workItem from="1642140908870" duration="187000" />
+      <workItem from="1642141733011" duration="157000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="1" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="COLUMN_ORDER" />
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>
