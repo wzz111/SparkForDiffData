@@ -17,6 +17,6 @@ public class DataCompareDiff {
 
         FileUtil.dataCompareDiffTwoFiles(filePathOne, filePathThree, "dirOne/a.txt", "dirTwo/b.txt", "UTF-8", false, false, false);
 
-        // FileUtil.dataCompareDiffTwoFiles(filePathOne, filePathTwo, "dirOne/a.txt", "dirTwo/b.txt", "UTF-8", false, false);
+        // FileUtil.dataCompareDiffTwoDirs(testOne, testTwo, "UTF-8",false,false);
     }
 }

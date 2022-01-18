@@ -80,7 +80,7 @@ public class FileUtil {
 
     private static StringBuilder sb = null;
 
-    private static JavaRDD<String> fileRead(String filePath, String encoding) {
+    private static JavaPairRDD<String, List<String>> fileRead(String filePath, String fileNum, String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
         // 要针对输入源（hdfs文件、本地文件，等等），创建一个初始的RDD
         // 输入源中的数据会打散，分配到RDD的每个partition中，从而形成一个初始的分布式的数据集
         // 我们这里呢，因为是本地测试，所以呢，就是针对本地文件
@@ -96,7 +96,43 @@ public class FileUtil {
         // 析生成相应的key和value.
         // RDD映射为使用encoding编码的新生成的字符串
         return jsc.hadoopFile(filePath, TextInputFormat.class, LongWritable.class
-                , Text.class).map(p -> new String(p._2.getBytes(), 0, p._2.getLength(), encoding));
+                , Text.class).mapToPair(new PairFunction<Tuple2<LongWritable, Text>, String, List<String>>() {
+            private int count = 1;
+
+            // 接着，需要将每一个单词，映射为(单词, 1)的这种格式
+            // 因为只有这样，后面才能根据单词作为key，来进行每个单词的出现次数的累加
+            // mapToPair，其实就是将每个元素，映射为一个(v1,v2)这样的Tuple2类型的元素
+            // 如果大家还记得scala里面讲的tuple，那么没错，这里的tuple2就是scala类型，包含了两个值
+            // mapToPair这个算子，要求的是与PairFunction配合使用，第一个泛型参数代表了输入类型
+            // 第二个和第三个泛型参数，代表的输出的Tuple2的第一个值和第二个值的类型
+            // JavaPairRDD的两个泛型参数，分别代表了tuple元素的第一个值和第二个值的类型
+            @Override
+            public Tuple2<String, List<String>> call(Tuple2<LongWritable, Text> p) throws Exception {
+                String line = new String(p._2.getBytes(), 0, p._2.getLength(), encoding);
+
+                String transLine = line;
+
+                if (!spaceSenFlag) {
+                    transLine = line.replaceAll(" ", "");
+                }
+
+                if (!caseSenFlag) {
+                    transLine = transLine.toLowerCase();
+                }
+
+                StringBuilder sb = new StringBuilder();
+
+                String[] split = fileNum.split("\\.");
+
+                if (split.length == 1) {
+                    sb.append("目录");
+                } else {
+                    sb.append("文件");
+                }
+
+                return new Tuple2<String, List<String>>(transLine, Arrays.asList("1", sb.append(fileNum).append("第").append(String.valueOf(count++)).append("行").append(":").append(line).toString(), fileNum));
+            }
+        });
     }
 
     /**
@@ -131,22 +167,42 @@ public class FileUtil {
         });
     }
 
-    private static JavaRDD<String> dirReadAndCombine(String dirPath) {
+    private static JavaPairRDD<String, List<String>> dirReadAndCombine(String dirPath, String dirNum, String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
         JavaNewHadoopRDD<LongWritable, Text> newHadoopRDD = (JavaNewHadoopRDD) jsc.newAPIHadoopFile(dirPath
                 , org.apache.hadoop.mapreduce.lib.input.CombineTextInputFormat.class
                 , LongWritable.class
                 , Text.class, jsc.hadoopConfiguration());
 
-        return newHadoopRDD.mapPartitionsWithInputSplit((inputSplit, iterator) -> {
+        return newHadoopRDD.mapToPair(new PairFunction<Tuple2<LongWritable, Text>, String, List<String>>() {
+            private int count = 1;
 
-            ArrayList<String> list = Lists.newArrayList();
+            @Override
+            public Tuple2<String, List<String>> call(Tuple2<LongWritable, Text> p) throws Exception {
+                String line = new String(p._2.getBytes(), 0, p._2.getLength(), encoding);
 
-            while (iterator.hasNext()) {
-                list.add(iterator.next()._2.toString());
+                String transLine = line;
+
+                if (!spaceSenFlag) {
+                    transLine = line.replaceAll(" ", "");
+                }
+
+                if (!caseSenFlag) {
+                    transLine = transLine.toLowerCase();
+                }
+
+                StringBuilder sb = new StringBuilder();
+
+                String[] split = dirNum.split("\\.");
+
+                if (split.length == 1) {
+                    sb.append("目录");
+                } else {
+                    sb.append("文件");
+                }
+
+                return new Tuple2<String, List<String>>(transLine, Arrays.asList("1", sb.append(dirNum).append("第").append(String.valueOf(count++)).append("行").append(":").append(line).toString(), dirNum));
             }
-
-            return list.iterator();
-        }, false);
+        });
     }
 
     /**
@@ -246,10 +302,10 @@ public class FileUtil {
      */
     public static void dataCompareDiffTwoCombineDirs(String dirPathOne, String dirPathTwo
             , String dirNumOne, String dirNumTwo
-            , boolean spaceSenFlag, boolean caseSenFlag) {
+            , String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
 
-        JavaRDD<String> linesOne = FileUtil.dirReadAndCombine(dirPathOne);
-        JavaRDD<String> linesTwo = FileUtil.dirReadAndCombine(dirPathTwo);
+        JavaPairRDD<String, List<String>> pairsOne = FileUtil.dirReadAndCombine(dirPathOne, dirNumOne, encoding, spaceSenFlag, caseSenFlag);
+        JavaPairRDD<String, List<String>> pairsTwo = FileUtil.dirReadAndCombine(dirPathTwo, dirNumOne, encoding, spaceSenFlag, caseSenFlag);
 
         StringBuilder sb = new StringBuilder();
 
@@ -259,8 +315,8 @@ public class FileUtil {
 
         fileOrDirTwo = sb.append("目录").append(dirNumTwo).toString();
 
-        JavaPairRDD<String, List<String>> transLinesOne = eachKeyCount(linesOne, spaceSenFlag, caseSenFlag, dirNumOne);
-        JavaPairRDD<String, List<String>> transLinesTwo = eachKeyCount(linesTwo, spaceSenFlag, caseSenFlag, dirNumTwo);
+        JavaPairRDD<String, List<String>> transLinesOne = eachKeyCount(pairsOne, spaceSenFlag, caseSenFlag, dirNumOne);
+        JavaPairRDD<String, List<String>> transLinesTwo = eachKeyCount(pairsTwo, spaceSenFlag, caseSenFlag, dirNumTwo);
 
         JavaPairRDD<String, List<String>> union = transLinesOne.union(transLinesTwo);
 
@@ -329,8 +385,8 @@ public class FileUtil {
             , String encoding, boolean spaceSenFlag, boolean caseSenFlag
             , boolean callFlag) {
 
-        JavaRDD<String> linesOne = fileRead(filePathOne, encoding);
-        JavaRDD<String> linesTwo = fileRead(filePathTwo, encoding);
+        JavaPairRDD<String, List<String>> pairsOne = fileRead(filePathOne, fileNumOne, encoding, spaceSenFlag, caseSenFlag);
+        JavaPairRDD<String, List<String>> pairsTwo = fileRead(filePathTwo, fileNumTwo, encoding, spaceSenFlag, caseSenFlag);
 
         if (StringUtils.isBlank(fileOrDirone)) {
             StringBuilder sb = new StringBuilder();
@@ -342,8 +398,8 @@ public class FileUtil {
             fileOrDirTwo = sb.append("文件").append(fileNumTwo).toString();
         }
 
-        JavaPairRDD<String, List<String>> transLinesOne = eachKeyCount(linesOne, spaceSenFlag, caseSenFlag, fileNumOne);
-        JavaPairRDD<String, List<String>> transLinesTwo = eachKeyCount(linesTwo, spaceSenFlag, caseSenFlag, fileNumTwo);
+        JavaPairRDD<String, List<String>> transLinesOne = eachKeyCount(pairsOne, spaceSenFlag, caseSenFlag, fileNumOne);
+        JavaPairRDD<String, List<String>> transLinesTwo = eachKeyCount(pairsTwo, spaceSenFlag, caseSenFlag, fileNumTwo);
 
         JavaPairRDD<String, List<String>> union = transLinesOne.union(transLinesTwo);
 
@@ -410,7 +466,7 @@ public class FileUtil {
 
                     return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
                 }
-            },true,3).foreach(line -> {
+            }, true, 3).foreach(line -> {
                 sb = new StringBuilder();
                 fw.write(sb.append(line).append("\r\n").toString());
             });
@@ -426,7 +482,7 @@ public class FileUtil {
 
                     return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
                 }
-            },true,3).foreach(line -> {
+            }, true, 3).foreach(line -> {
                 sb = new StringBuilder();
                 fw.write(sb.append(line).append("\r\n").toString());
             });
@@ -442,7 +498,7 @@ public class FileUtil {
 
                     return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
                 }
-            },true,3).foreach(line -> {
+            }, true, 3).foreach(line -> {
                 sb = new StringBuilder();
                 fw.write(sb.append(line).append("\r\n").toString());
             });
@@ -458,7 +514,7 @@ public class FileUtil {
 
                     return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
                 }
-            },true,3).foreach(line -> {
+            }, true, 3).foreach(line -> {
                 sb = new StringBuilder();
                 fw.write(sb.append(line).append("\r\n").toString());
             });
@@ -471,49 +527,8 @@ public class FileUtil {
         }
     }
 
-    private static JavaPairRDD<String, List<String>> eachKeyCount(JavaRDD<String> lines, boolean spaceSenFlag,
+    private static JavaPairRDD<String, List<String>> eachKeyCount(JavaPairRDD<String, List<String>> pairs, boolean spaceSenFlag,
                                                                   boolean caseSenFlag, String fileNum) {
-
-        // 接着，需要将每一个单词，映射为(单词, 1)的这种格式
-        // 因为只有这样，后面才能根据单词作为key，来进行每个单词的出现次数的累加
-        // mapToPair，其实就是将每个元素，映射为一个(v1,v2)这样的Tuple2类型的元素
-        // 如果大家还记得scala里面讲的tuple，那么没错，这里的tuple2就是scala类型，包含了两个值
-        // mapToPair这个算子，要求的是与PairFunction配合使用，第一个泛型参数代表了输入类型
-        // 第二个和第三个泛型参数，代表的输出的Tuple2的第一个值和第二个值的类型
-        // JavaPairRDD的两个泛型参数，分别代表了tuple元素的第一个值和第二个值的类型
-        JavaPairRDD<String, List<String>> pairs = lines.mapToPair(
-
-                new PairFunction<String, String, List<String>>() {
-
-                    private static final long serialVersionUID = 1L;
-
-                    private int count = 1;
-
-                    @Override
-                    public Tuple2<String, List<String>> call(String line) throws Exception {
-                        String transLine = line;
-
-                        if (!spaceSenFlag) {
-                            transLine = line.replaceAll(" ", "");
-                        }
-
-                        if (!caseSenFlag) {
-                            transLine = transLine.toLowerCase();
-                        }
-
-                        StringBuilder sb = new StringBuilder();
-
-                        String[] split = fileNum.split("\\.");
-
-                        if (split.length == 1) {
-                            sb.append("目录");
-                        } else {
-                            sb.append("文件");
-                        }
-
-                        return new Tuple2<String, List<String>>(transLine, Arrays.asList("1", sb.append(fileNum).append("第").append(String.valueOf(count++)).append("行").append(":").append(line).toString(), fileNum));
-                    }
-                });
 
         // 接着，需要以单词作为key，统计每个单词出现的次数
         // 这里要使用reduceByKey这个算子，对每个key对应的value，都进行reduce操作
