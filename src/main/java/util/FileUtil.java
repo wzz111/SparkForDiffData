@@ -15,6 +15,8 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.function.VoidFunction;
+import org.apache.spark.broadcast.Broadcast;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Tuple2;
@@ -22,9 +24,7 @@ import scala.Tuple2;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -32,9 +32,21 @@ public class FileUtil {
 
     private final static Logger logger = LoggerFactory.getLogger(FileUtil.class);
     // 1. 创建SparkConf对象, 设置Spark应用的配置信息
+    // 开启8个线程
+    // 设置每个Stage的默认任务数量
     private static SparkConf conf = new SparkConf()
             .setAppName("DataCompareDiffLocal")
-            .setMaster("local");
+            .setMaster("local[1]")
+            .set("spark.num.executors", "10")
+            .set("spark.executor.cores", "3")
+            .set("spark.executor.memory", "8g")
+            .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+            .set("spark.driver.memory", "5g")
+            .set("spark.storage.memoryFraction", "0.45")
+            .set("spark.shuffle.memoryFraction", "0.4")
+            .set("spark.shuffle.manager", "hash")
+            .set("spark.shuffle.consolidateFiles", "true")
+            .set("spark.reducer.maxSizeInFlight", "256m");
 
     // 2. 创建JavaSparkContext对象
     // 在Spark中，SparkContext是Spark所有功能的一个入口，你无论是用java、scala，甚至是python编写
@@ -62,25 +74,32 @@ public class FileUtil {
 
     private static List<String> fileNumListTwo = Lists.newArrayList();
 
+    private static List<String> middRddCommOne = Lists.newArrayList();
+
+    private static List<String> middRddCommTwo = Lists.newArrayList();
+
+    private static List<String> middRddDiffOne = Lists.newArrayList();
+
+    private static List<String> middRddDiffTwo = Lists.newArrayList();
+
+    private static Integer limit = 100000;
+
     private static String fileOrDirone = null;
 
     private static String fileOrDirTwo = null;
 
-    private static FileWriter fw = null;
+    private static FileWriter fwCommOne = null;
 
-    static {
-        try {
-            fw = new FileWriter(new File("Analysis.txt"));
-        } catch (IOException e) {
-            e.printStackTrace();
+    private static FileWriter fwCommTwo = null;
 
-            System.out.println("文件初始化失败！！！");
-        }
-    }
+    private static FileWriter fwDiffOne = null;
+
+    private static FileWriter fwDiffTwo = null;
 
     private static StringBuilder sb = null;
 
-    private static JavaPairRDD<String, List<String>> fileRead(String filePath, String fileNum, String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
+    private static JavaPairRDD<String, List<String>> fileRead(String filePath, String fileNum, String care, String encoding
+            , boolean spaceSenFlag, boolean caseSenFlag, boolean callFlag) {
         // 要针对输入源（hdfs文件、本地文件，等等），创建一个初始的RDD
         // 输入源中的数据会打散，分配到RDD的每个partition中，从而形成一个初始的分布式的数据集
         // 我们这里呢，因为是本地测试，所以呢，就是针对本地文件
@@ -95,8 +114,10 @@ public class FileUtil {
         // KeyValueTextInputFo0rmat是另一个常用的数据输入格式, 可将一个按照格式逐行存放的文本文件逐行读出, 并自动解
         // 析生成相应的key和value.
         // RDD映射为使用encoding编码的新生成的字符串
-        return jsc.hadoopFile(filePath, TextInputFormat.class, LongWritable.class
+
+        JavaPairRDD<String, List<String>> pairRDD = jsc.hadoopFile(filePath, TextInputFormat.class, LongWritable.class
                 , Text.class).mapToPair(new PairFunction<Tuple2<LongWritable, Text>, String, List<String>>() {
+
             private int count = 1;
 
             // 接着，需要将每一个单词，映射为(单词, 1)的这种格式
@@ -122,17 +143,26 @@ public class FileUtil {
 
                 StringBuilder sb = new StringBuilder();
 
-                String[] split = fileNum.split("\\.");
-
-                if (split.length == 1) {
-                    sb.append("目录");
-                } else {
-                    sb.append("文件");
+                if (callFlag) {
+                    sb.append("文件").append(fileNum);
                 }
 
-                return new Tuple2<String, List<String>>(transLine, Arrays.asList("1", sb.append(fileNum).append("第").append(String.valueOf(count++)).append("行").append(":").append(line).toString(), fileNum));
+                return new Tuple2<String, List<String>>(transLine, Arrays.asList("1", sb.append(String.valueOf(count++)).append(":").append(line).toString(), fileNum));
             }
         });
+
+        if (!care.equals("")) {
+            Broadcast<String> broadCare = jsc.broadcast(care);
+
+            pairRDD = pairRDD.filter(new Function<Tuple2<String, List<String>>, Boolean>() {
+                @Override
+                public Boolean call(Tuple2<String, List<String>> line) throws Exception {
+                    return line._1.indexOf(broadCare.getValue()) != -1;
+                }
+            });
+        }
+
+        return pairRDD;
     }
 
     /**
@@ -141,7 +171,7 @@ public class FileUtil {
      * @param dirPath
      * @return
      */
-    private static JavaPairRDD<String, String> dirRead(String dirPath) {
+    private static JavaPairRDD<String, String> dirRead(String dirPath, String care) {
         JavaNewHadoopRDD<LongWritable, Text> newHadoopRDD = (JavaNewHadoopRDD) jsc.newAPIHadoopFile(dirPath
                 , org.apache.hadoop.mapreduce.lib.input.TextInputFormat.class
                 , LongWritable.class
@@ -152,7 +182,13 @@ public class FileUtil {
 
             String path = fs.getPath().toUri().getPath();
 
-            ArrayList<String> list = Lists.newArrayList(path);
+            ArrayList<String> list = Lists.newArrayList();
+
+            String[] split = path.split("\\.")[0].split("/");
+
+            if (split[split.length - 1].indexOf(care) != -1) {
+                list.add(path);
+            }
 
             return list.iterator();
         }, false);
@@ -167,17 +203,18 @@ public class FileUtil {
         });
     }
 
-    private static JavaPairRDD<String, List<String>> dirReadAndCombine(String dirPath, String dirNum, String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
+    private static JavaPairRDD<String, List<String>> dirReadAndCombine(String dirPath, String dirNum, String care, String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
         JavaNewHadoopRDD<LongWritable, Text> newHadoopRDD = (JavaNewHadoopRDD) jsc.newAPIHadoopFile(dirPath
                 , org.apache.hadoop.mapreduce.lib.input.CombineTextInputFormat.class
                 , LongWritable.class
                 , Text.class, jsc.hadoopConfiguration());
 
         return newHadoopRDD.mapToPair(new PairFunction<Tuple2<LongWritable, Text>, String, List<String>>() {
-            private int count = 1;
 
             @Override
             public Tuple2<String, List<String>> call(Tuple2<LongWritable, Text> p) throws Exception {
+                System.out.println(p._1);
+
                 String line = new String(p._2.getBytes(), 0, p._2.getLength(), encoding);
 
                 String transLine = line;
@@ -190,17 +227,12 @@ public class FileUtil {
                     transLine = transLine.toLowerCase();
                 }
 
-                StringBuilder sb = new StringBuilder();
-
-                String[] split = dirNum.split("\\.");
-
-                if (split.length == 1) {
-                    sb.append("目录");
-                } else {
-                    sb.append("文件");
-                }
-
-                return new Tuple2<String, List<String>>(transLine, Arrays.asList("1", sb.append(dirNum).append("第").append(String.valueOf(count++)).append("行").append(":").append(line).toString(), dirNum));
+                return new Tuple2<String, List<String>>(transLine, Arrays.asList("1", line, dirNum));
+            }
+        }).filter(new Function<Tuple2<String, List<String>>, Boolean>() {
+            @Override
+            public Boolean call(Tuple2<String, List<String>> line) throws Exception {
+                return line._1.indexOf(care) != -1;
             }
         });
     }
@@ -215,9 +247,9 @@ public class FileUtil {
      * @param caseSenFlag
      */
     public static void dataCompareDiffTwoDirs(String dirPathOne, String dirPathTwo
-            , String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
+            , String fileNameCare, String fileContentCare, String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
 
-        findSameFileName(dirPathOne, dirPathTwo, spaceSenFlag, caseSenFlag);
+        findSameFileName(dirPathOne, dirPathTwo, fileNameCare, spaceSenFlag, caseSenFlag);
 
         StringBuilder sb = new StringBuilder();
 
@@ -238,10 +270,10 @@ public class FileUtil {
             String fileNumTwo = fileNumListTwo.get(i);
 
             dataCompareDiffTwoFiles(filePathOne, filePathTwo, fileNumOne, fileNumTwo
-                    , encoding, spaceSenFlag, caseSenFlag, true);
+                    , fileContentCare, encoding, spaceSenFlag, caseSenFlag, true);
         }
 
-        saveFile();
+        saveFile(false);
     }
 
     /**
@@ -253,10 +285,10 @@ public class FileUtil {
      * @param caseSenFlag
      */
     private static void findSameFileName(String dirPathOne, String dirPathTwo
-            , boolean spaceSenFlag, boolean caseSenFlag) {
+            , String care, boolean spaceSenFlag, boolean caseSenFlag) {
 
-        JavaPairRDD<String, String> pairRDDOne = FileUtil.dirRead(dirPathOne);
-        JavaPairRDD<String, String> pairRDDTwo = FileUtil.dirRead(dirPathTwo);
+        JavaPairRDD<String, String> pairRDDOne = FileUtil.dirRead(dirPathOne, care);
+        JavaPairRDD<String, String> pairRDDTwo = FileUtil.dirRead(dirPathTwo, care);
 
         JavaPairRDD<String, Iterable<String>> group = pairRDDOne.union(pairRDDTwo).groupByKey();
 
@@ -277,13 +309,13 @@ public class FileUtil {
 
                 StringBuilder sb = new StringBuilder();
 
-                String fileNumOne = sb.append(splitOne[splitOne.length - 2]).append("/").append(splitOne[splitOne.length - 1]).toString();
+                String fileNumOne = sb.append(splitOne[splitOne.length - 1]).toString();
 
                 fileNumListOne.add(fileNumOne);
 
                 sb = new StringBuilder();
 
-                String fileNumTwo = sb.append(splitTwo[splitTwo.length - 2]).append("/").append(splitTwo[splitTwo.length - 1]).toString();
+                String fileNumTwo = sb.append(splitTwo[splitTwo.length - 1]).toString();
 
                 fileNumListTwo.add(fileNumTwo);
             }
@@ -302,10 +334,10 @@ public class FileUtil {
      */
     public static void dataCompareDiffTwoCombineDirs(String dirPathOne, String dirPathTwo
             , String dirNumOne, String dirNumTwo
-            , String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
+            , String care, String encoding, boolean spaceSenFlag, boolean caseSenFlag) {
 
-        JavaPairRDD<String, List<String>> pairsOne = FileUtil.dirReadAndCombine(dirPathOne, dirNumOne, encoding, spaceSenFlag, caseSenFlag);
-        JavaPairRDD<String, List<String>> pairsTwo = FileUtil.dirReadAndCombine(dirPathTwo, dirNumOne, encoding, spaceSenFlag, caseSenFlag);
+        JavaPairRDD<String, List<String>> pairsOne = FileUtil.dirReadAndCombine(dirPathOne, dirNumOne, care, encoding, spaceSenFlag, caseSenFlag);
+        JavaPairRDD<String, List<String>> pairsTwo = FileUtil.dirReadAndCombine(dirPathTwo, dirNumOne, care, encoding, spaceSenFlag, caseSenFlag);
 
         StringBuilder sb = new StringBuilder();
 
@@ -315,58 +347,124 @@ public class FileUtil {
 
         fileOrDirTwo = sb.append("目录").append(dirNumTwo).toString();
 
-        JavaPairRDD<String, List<String>> transLinesOne = eachKeyCount(pairsOne, spaceSenFlag, caseSenFlag, dirNumOne);
-        JavaPairRDD<String, List<String>> transLinesTwo = eachKeyCount(pairsTwo, spaceSenFlag, caseSenFlag, dirNumTwo);
+        conf.setMaster("local[4]")
+                .set("spark.default.parallelism", "60");
 
-        JavaPairRDD<String, List<String>> union = transLinesOne.union(transLinesTwo);
+        if (StringUtils.isBlank(fileOrDirone)) {
+            sb = new StringBuilder();
 
-        JavaPairRDD<String, Iterable<List<String>>> groupUnion = union.groupByKey();
+            fileOrDirone = sb.append("文件").append(dirNumOne).toString();
 
+            sb = new StringBuilder();
 
-        groupUnion.foreach(line -> {
-            List<List<String>> lists = StreamSupport.stream(line._2.spliterator(), true).collect(Collectors.toList());
+            fileOrDirTwo = sb.append("文件").append(dirNumTwo).toString();
+        }
 
-            int size = lists.size();
+        JavaPairRDD<String, List<String>> union = pairsOne.union(pairsTwo);
 
-            List<String> listOne = lists.get(0);
+        JavaPairRDD<String, ArrayList<List<String>>> groupUnion = union.aggregateByKey(
+                new ArrayList<List<String>>()
+                , (ArrayList<List<String>> begin, List<String> V1) -> {
+                    ArrayList<List<String>> temp = new ArrayList<List<String>>();
 
-            String[] eleOriOne = listOne.get(1).split("SplitOne");
-
-            String fileName = listOne.get(2);
-
-            switch (size) {
-                case 1:
-                    if (fileName.equals(dirNumOne)) {
-                        diffOne = diffOne.union(jsc.parallelize(Arrays.asList(Arrays.toString(eleOriOne))));
+                    if (begin.size() == 0) {
+                        temp.add(V1);
                     } else {
-                        diffTwo = diffTwo.union(jsc.parallelize(Arrays.asList(Arrays.toString(eleOriOne))));
+                        List<String> V2 = begin.get(0);
+
+                        combine(temp, V1, V2);
                     }
 
-                    break;
-                case 2:
-                    List<String> listTwo = lists.get(1);
+                    return temp;
+                }
+                , (ArrayList<List<String>> valOne, ArrayList<List<String>> valTwo) -> {
 
-                    String[] eleOriTwo = listTwo.get(1).split("SplitOne");
+                    ArrayList<List<String>> temp = new ArrayList<List<String>>();
 
-                    int countOne = Integer.parseInt(listOne.get(0));
-                    int countTwo = Integer.parseInt(listTwo.get(0));
+                    List<String> V1 = valOne.get(0);
+                    List<String> V2 = valTwo.get(0);
 
-                    if (fileName.equals(dirNumTwo)) {
-                        eleOriOne = listTwo.get(1).split("SplitOne");
-                        eleOriTwo = listOne.get(1).split("SplitOne");
+                    String fileNameOne = V1.get(2);
+                    String fileNameTwo = V2.get(2);
 
-                        countOne = Integer.parseInt(listTwo.get(0));
-                        countTwo = Integer.parseInt(listOne.get(0));
+                    if (fileNameOne.equals(fileNameTwo)) {
+                        combine(temp, V1, V2);
+                    } else {
+                        temp.add(V1);
+                        temp.add(V2);
                     }
 
-                    resStat(countOne, countTwo
-                            , eleOriOne, eleOriTwo);
+                    return temp;
+                });
 
-                    break;
+        groupUnion.foreachPartition(new VoidFunction<Iterator<Tuple2<String, ArrayList<List<String>>>>>() {
+            @Override
+            public void call(Iterator<Tuple2<String, ArrayList<List<String>>>> iterator) throws Exception {
+                while (iterator.hasNext()) {
+                    List<List<String>> lists = iterator.next()._2;
+
+                    int size = lists.size();
+
+                    List<String> listOne = lists.get(0);
+
+                    String[] eleOriOne = null;
+                    String[] eleOriTempOne = listOne.get(1).split("SplitOne");
+
+                    eleOriOne = eleOriTempOne;
+
+                    String fileName = listOne.get(2);
+
+                    switch (size) {
+                        case 1:
+                            if (fileName.equals(dirNumOne)) {
+                                if (middRddDiffOne.size() == limit) {
+                                    diffOne = diffOne.union(jsc.parallelize(middRddDiffOne));
+                                    middRddDiffOne = Lists.newArrayList();
+                                }
+
+                                middRddDiffOne.add(Arrays.toString(eleOriOne));
+                            } else {
+                                if (middRddDiffTwo.size() == limit) {
+                                    diffTwo = diffTwo.union(jsc.parallelize(middRddDiffTwo));
+                                    middRddDiffTwo = Lists.newArrayList();
+                                }
+
+                                middRddDiffTwo.add(Arrays.toString(eleOriOne));
+                            }
+
+                            break;
+                        case 2:
+                            List<String> listTwo = lists.get(1);
+
+                            String[] eleOriTwo = null;
+
+                            String[] eleOriTempTwo = listTwo.get(1).split("SplitOne");
+
+                            eleOriTwo = eleOriTempTwo;
+
+                            int countOne = Integer.parseInt(listOne.get(0));
+                            int countTwo = Integer.parseInt(listTwo.get(0));
+                            int countTempOne = countOne;
+                            int countTempTwo = countTwo;
+
+                            if (fileName.equals(dirNumTwo)) {
+                                eleOriOne = eleOriTempTwo;
+                                eleOriTwo = eleOriTempOne;
+
+                                countOne = countTempTwo;
+                                countTwo = countTempOne;
+                            }
+
+                            resStat(countOne, countTwo
+                                    , eleOriOne, eleOriTwo);
+
+                            break;
+                    }
+                }
             }
         });
 
-        saveFile();
+        saveFile(true);
     }
 
     /**
@@ -382,11 +480,16 @@ public class FileUtil {
      */
     public static void dataCompareDiffTwoFiles(String filePathOne, String filePathTwo
             , String fileNumOne, String fileNumTwo
-            , String encoding, boolean spaceSenFlag, boolean caseSenFlag
-            , boolean callFlag) {
+            , String care, String encoding
+            , boolean spaceSenFlag, boolean caseSenFlag, boolean callFlag) {
 
-        JavaPairRDD<String, List<String>> pairsOne = fileRead(filePathOne, fileNumOne, encoding, spaceSenFlag, caseSenFlag);
-        JavaPairRDD<String, List<String>> pairsTwo = fileRead(filePathTwo, fileNumTwo, encoding, spaceSenFlag, caseSenFlag);
+        JavaPairRDD<String, List<String>> pairsOne = fileRead(filePathOne, fileNumOne, care
+                , encoding, spaceSenFlag, caseSenFlag, callFlag);
+        JavaPairRDD<String, List<String>> pairsTwo = fileRead(filePathTwo, fileNumTwo, care
+                , encoding, spaceSenFlag, caseSenFlag, callFlag);
+
+        conf.setMaster("local[4]")
+                .set("spark.default.parallelism", "60");
 
         if (StringUtils.isBlank(fileOrDirone)) {
             StringBuilder sb = new StringBuilder();
@@ -398,169 +501,205 @@ public class FileUtil {
             fileOrDirTwo = sb.append("文件").append(fileNumTwo).toString();
         }
 
-        JavaPairRDD<String, List<String>> transLinesOne = eachKeyCount(pairsOne, spaceSenFlag, caseSenFlag, fileNumOne);
-        JavaPairRDD<String, List<String>> transLinesTwo = eachKeyCount(pairsTwo, spaceSenFlag, caseSenFlag, fileNumTwo);
+        JavaPairRDD<String, List<String>> union = pairsOne.union(pairsTwo);
 
-        JavaPairRDD<String, List<String>> union = transLinesOne.union(transLinesTwo);
+        JavaPairRDD<String, ArrayList<List<String>>> groupUnion = union.aggregateByKey(
+                new ArrayList<List<String>>()
+                , (ArrayList<List<String>> begin, List<String> V1) -> {
+                    ArrayList<List<String>> temp = new ArrayList<List<String>>();
 
-        JavaPairRDD<String, Iterable<List<String>>> groupUnion = union.groupByKey();
-
-        groupUnion.foreach(line -> {
-            List<List<String>> lists = StreamSupport.stream(line._2.spliterator(), true).collect(Collectors.toList());
-
-            int size = lists.size();
-
-            List<String> listOne = lists.get(0);
-
-            String[] eleOriOne = listOne.get(1).split("SplitOne");
-
-            String fileName = listOne.get(2);
-
-            switch (size) {
-                case 1:
-                    if (fileName.equals(fileNumOne)) {
-                        diffOne = diffOne.union(jsc.parallelize(Arrays.asList(Arrays.toString(eleOriOne))));
+                    if (begin.size() == 0) {
+                        temp.add(V1);
                     } else {
-                        diffTwo = diffTwo.union(jsc.parallelize(Arrays.asList(Arrays.toString(eleOriOne))));
+                        List<String> V2 = begin.get(0);
+
+                        combine(temp, V1, V2);
                     }
 
-                    break;
-                case 2:
-                    List<String> listTwo = lists.get(1);
+                    return temp;
+                }
+                , (ArrayList<List<String>> valOne, ArrayList<List<String>> valTwo) -> {
 
-                    String[] eleOriTwo = listTwo.get(1).split("SplitOne");
+                    ArrayList<List<String>> temp = new ArrayList<List<String>>();
 
-                    int countOne = Integer.parseInt(listOne.get(0));
-                    int countTwo = Integer.parseInt(listTwo.get(0));
+                    List<String> V1 = valOne.get(0);
+                    List<String> V2 = valTwo.get(0);
 
-                    if (fileName.equals(fileNumTwo)) {
-                        eleOriOne = listTwo.get(1).split("SplitOne");
-                        eleOriTwo = listOne.get(1).split("SplitOne");
+                    String fileNameOne = V1.get(2);
+                    String fileNameTwo = V2.get(2);
 
-                        countOne = Integer.parseInt(listTwo.get(0));
-                        countTwo = Integer.parseInt(listOne.get(0));
+                    if (fileNameOne.equals(fileNameTwo)) {
+                        combine(temp, V1, V2);
+                    } else {
+                        temp.add(V1);
+                        temp.add(V2);
                     }
 
-                    resStat(countOne, countTwo
-                            , eleOriOne, eleOriTwo);
+                    return temp;
+                });
 
-                    break;
+
+        groupUnion.foreachPartition(new VoidFunction<Iterator<Tuple2<String, ArrayList<List<String>>>>>() {
+            @Override
+            public void call(Iterator<Tuple2<String, ArrayList<List<String>>>> iterator) throws Exception {
+                while (iterator.hasNext()) {
+                    List<List<String>> lists = iterator.next()._2;
+
+                    int size = lists.size();
+
+                    List<String> listOne = lists.get(0);
+
+                    String[] eleOriOne = null;
+                    String[] eleOriTempOne = listOne.get(1).split("SplitOne");
+
+                    eleOriOne = eleOriTempOne;
+
+                    String fileName = listOne.get(2);
+
+                    switch (size) {
+                        case 1:
+                            if (fileName.equals(fileNumOne)) {
+                                if (middRddDiffOne.size() == limit) {
+                                    diffOne = diffOne.union(jsc.parallelize(middRddDiffOne));
+                                    middRddDiffOne = Lists.newArrayList();
+                                }
+
+                                middRddDiffOne.add(Arrays.toString(eleOriOne));
+                            } else {
+                                if (middRddDiffTwo.size() == limit) {
+                                    diffTwo = diffTwo.union(jsc.parallelize(middRddDiffTwo));
+                                    middRddDiffTwo = Lists.newArrayList();
+                                }
+
+                                middRddDiffTwo.add(Arrays.toString(eleOriOne));
+                            }
+
+                            break;
+                        case 2:
+                            List<String> listTwo = lists.get(1);
+
+                            String[] eleOriTwo = null;
+
+                            String[] eleOriTempTwo = listTwo.get(1).split("SplitOne");
+
+                            eleOriTwo = eleOriTempTwo;
+
+                            int countOne = Integer.parseInt(listOne.get(0));
+                            int countTwo = Integer.parseInt(listTwo.get(0));
+                            int countTempOne = countOne;
+                            int countTempTwo = countTwo;
+
+                            if (fileName.equals(fileNumTwo)) {
+                                eleOriOne = eleOriTempTwo;
+                                eleOriTwo = eleOriTempOne;
+
+                                countOne = countTempTwo;
+                                countTwo = countTempOne;
+                            }
+
+                            resStat(countOne, countTwo
+                                    , eleOriOne, eleOriTwo);
+
+                            break;
+                    }
+                }
             }
         });
 
         if (!callFlag) {
-            saveFile();
+            saveFile(false);
         }
     }
 
-    private static void saveFile() {
+    private static void saveFile(boolean combine) {
         try {
-            sb = new StringBuilder();
 
+            String[] splitOne = fileOrDirone.split("\\.")[0].split("/");
+            String[] splitTwo = fileOrDirTwo.split("\\.")[0].split("/");
 
-            fw.write(sb.append("=================").append(fileOrDirone).append("相同元素").append("=================").append("\r\n").toString());
+            fwCommOne = new FileWriter(new File("Result\\" + "Comm " + splitOne[splitOne.length - 1] + ".txt"));
+            fwDiffOne = new FileWriter(new File("Result\\" + "Diff " + splitOne[splitOne.length - 1] + ".txt"));
+            fwCommTwo = new FileWriter(new File("Result\\" + "Comm " + splitTwo[splitTwo.length - 1] + ".txt"));
+            fwDiffTwo = new FileWriter(new File("Result\\" + "Diff " + splitTwo[splitTwo.length - 1] + ".txt"));
+
+            if (middRddCommOne.size() != 0) {
+                commOne = commOne.union(jsc.parallelize(middRddCommOne));
+            }
+
+            if (middRddCommTwo.size() != 0) {
+                commTwo = commTwo.union(jsc.parallelize(middRddCommTwo));
+            }
+
+            if (middRddDiffOne.size() != 0) {
+                diffOne = diffOne.union(jsc.parallelize(middRddDiffOne));
+            }
+
+            if (middRddDiffTwo.size() != 0) {
+                diffTwo = diffTwo.union(jsc.parallelize(middRddDiffTwo));
+            }
 
             commOne.sortBy(new Function<String, Integer>() {
                 @Override
                 public Integer call(String s) throws Exception {
-
-                    return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
+                    return Integer.valueOf(s.split(":")[0].split("\\[")[1]);
                 }
-            }, true, 3).foreach(line -> {
-                sb = new StringBuilder();
-                fw.write(sb.append(line).append("\r\n").toString());
-            });
-
-            fw.write("\r\n\r\n");
-
-            sb = new StringBuilder();
-            fw.write(sb.append("=================").append(fileOrDirTwo).append("相同元素").append("=================").append("\r\n").toString());
+            }, true, 3).foreachPartition(
+                    iterator -> {
+                        while (iterator.hasNext()) {
+                            fwCommOne.write(iterator.next() + "\r\n");
+                        }
+                    }
+            );
 
             commTwo.sortBy(new Function<String, Integer>() {
                 @Override
                 public Integer call(String s) throws Exception {
-
-                    return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
+                    return Integer.valueOf(s.split(":")[0].split("\\[")[1]);
                 }
-            }, true, 3).foreach(line -> {
-                sb = new StringBuilder();
-                fw.write(sb.append(line).append("\r\n").toString());
-            });
-
-            fw.write("\r\n\r\n");
-
-            sb = new StringBuilder();
-            fw.write(sb.append("=================").append(fileOrDirone).append("不同元素").append("=================").append("\r\n").toString());
+            }, true, 3).foreachPartition(
+                    iterator -> {
+                        while (iterator.hasNext()) {
+                            fwCommTwo.write(iterator.next() + "\r\n");
+                        }
+                    }
+            );
 
             diffOne.sortBy(new Function<String, Integer>() {
                 @Override
                 public Integer call(String s) throws Exception {
-
-                    return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
+                    return Integer.valueOf(s.split(":")[0].split("\\[")[1]);
                 }
-            }, true, 3).foreach(line -> {
-                sb = new StringBuilder();
-                fw.write(sb.append(line).append("\r\n").toString());
-            });
-
-            fw.write("\r\n\r\n");
-
-            sb = new StringBuilder();
-            fw.write(sb.append("=================").append(fileOrDirTwo).append("不同元素").append("=================").append("\r\n").toString());
+            }, true, 3).foreachPartition(
+                    iterator -> {
+                        while (iterator.hasNext()) {
+                            fwDiffOne.write(iterator.next() + "\r\n");
+                        }
+                    }
+            );
 
             diffTwo.sortBy(new Function<String, Integer>() {
                 @Override
                 public Integer call(String s) throws Exception {
-
-                    return Integer.valueOf(s.split(",")[0].split("行")[0].split("第")[1]);
+                    return Integer.valueOf(s.split(":")[0].split("\\[")[1]);
                 }
-            }, true, 3).foreach(line -> {
-                sb = new StringBuilder();
-                fw.write(sb.append(line).append("\r\n").toString());
-            });
+            }, true, 3).foreachPartition(
+                    iterator -> {
+                        while (iterator.hasNext()) {
+                            fwDiffTwo.write(iterator.next() + "\r\n");
+                        }
+                    }
+            );
 
-            fw.close();
+            fwCommOne.close();
+            fwCommTwo.close();
+            fwDiffOne.close();
+            fwDiffTwo.close();
+
         } catch (IOException e) {
             e.printStackTrace();
 
             System.out.println("写入文件出错！！！");
         }
-    }
-
-    private static JavaPairRDD<String, List<String>> eachKeyCount(JavaPairRDD<String, List<String>> pairs, boolean spaceSenFlag,
-                                                                  boolean caseSenFlag, String fileNum) {
-
-        // 接着，需要以单词作为key，统计每个单词出现的次数
-        // 这里要使用reduceByKey这个算子，对每个key对应的value，都进行reduce操作
-        // 比如JavaPairRDD中有几个元素，分别为(hello, 1) (hello, 1) (hello, 1) (world, 1)
-        // reduce操作，相当于是把第一个值和第二个值进行计算，然后再将结果与第三个值进行计算
-        // 比如这里的hello，那么就相当于是，首先是1 + 1 = 2，然后再将2 + 1 = 3
-        // 最后返回的JavaPairRDD中的元素，也是tuple，但是第一个值就是每个key，第二个值就是key的value
-        // reduce之后的结果，相当于就是每个单词出现的次数
-
-        return pairs.reduceByKey(
-
-                new Function2<List<String>, List<String>, List<String>>() {
-
-                    private static final long serialVersionUID = 1L;
-
-                    @Override
-                    public List<String> call(List<String> V1, List<String> V2) throws Exception {
-                        String eleOne = V1.get(1);
-                        String eleTwo = V2.get(1);
-
-                        Integer countOne = Integer.parseInt(V1.get(0));
-                        Integer countTwo = Integer.parseInt(V2.get(0));
-
-                        String count = String.valueOf(countOne + countTwo);
-
-                        StringBuilder sb = new StringBuilder();
-
-                        sb.append(eleOne).append("SplitOne").append(eleTwo);
-
-                        return Arrays.asList(count, sb.toString(), V1.get(2));
-                    }
-                });
     }
 
     private static void resStat(int countOne, int countTwo
@@ -571,28 +710,80 @@ public class FileUtil {
 
         switch (flag) {
             case 1:
-                diffOne = diffOne.union(jsc.parallelize(Arrays.asList(Arrays.toString(Arrays.copyOfRange(eleOriOne, countTwo, countOne)))));
+                if (middRddDiffOne.size() == limit) {
+                    diffOne = diffOne.union(jsc.parallelize(middRddDiffOne));
+                    middRddDiffOne = Lists.newArrayList();
+                }
 
-                commOne = commOne.union(jsc.parallelize(Arrays.asList(Arrays.toString(Arrays.copyOfRange(eleOriOne, 0, countTwo)))));
+                if (middRddCommOne.size() == limit) {
+                    commOne = commOne.union(jsc.parallelize(middRddCommOne));
+                    middRddCommOne = Lists.newArrayList();
+                }
 
-                commTwo = commTwo.union(jsc.parallelize(Arrays.asList(Arrays.toString(Arrays.copyOfRange(eleOriTwo, 0, countTwo)))));
+                if (middRddCommTwo.size() == limit) {
+                    commTwo = commTwo.union(jsc.parallelize(middRddCommTwo));
+                    middRddCommTwo = Lists.newArrayList();
+                }
+
+                middRddDiffOne.add(Arrays.toString(Arrays.copyOfRange(eleOriOne, countTwo, countOne)));
+                middRddCommOne.add(Arrays.toString(Arrays.copyOfRange(eleOriOne, 0, countTwo)));
+                middRddCommTwo.add(Arrays.toString(Arrays.copyOfRange(eleOriTwo, 0, countTwo)));
 
                 break;
             case -1:
-                diffTwo = diffTwo.union(jsc.parallelize(Arrays.asList(Arrays.toString(Arrays.copyOfRange(eleOriTwo, countOne, countTwo)))));
+                if (middRddDiffTwo.size() == limit) {
+                    diffTwo = diffTwo.union(jsc.parallelize(middRddDiffTwo));
+                    middRddDiffTwo = Lists.newArrayList();
+                }
 
-                commOne = commOne.union(jsc.parallelize(Arrays.asList(Arrays.toString(Arrays.copyOfRange(eleOriOne, 0, countOne)))));
+                if (middRddCommOne.size() == limit) {
+                    commOne = commOne.union(jsc.parallelize(middRddCommOne));
+                    middRddCommOne = Lists.newArrayList();
+                }
 
-                commTwo = commTwo.union(jsc.parallelize(Arrays.asList(Arrays.toString(Arrays.copyOfRange(eleOriTwo, 0, countOne)))));
+                if (middRddCommTwo.size() == limit) {
+                    commTwo = commTwo.union(jsc.parallelize(middRddCommTwo));
+                    middRddCommTwo = Lists.newArrayList();
+                }
+
+                middRddDiffTwo.add(Arrays.toString(Arrays.copyOfRange(eleOriTwo, countOne, countTwo)));
+                middRddCommOne.add(Arrays.toString(Arrays.copyOfRange(eleOriOne, 0, countOne)));
+                middRddCommTwo.add(Arrays.toString(Arrays.copyOfRange(eleOriTwo, 0, countOne)));
 
                 break;
             case 0:
-                commOne = commOne.union(jsc.parallelize(Arrays.asList(Arrays.toString(eleOriOne))));
+                if (middRddCommOne.size() == limit) {
+                    commOne = commOne.union(jsc.parallelize(middRddCommOne));
+                    middRddCommOne = Lists.newArrayList();
+                }
 
-                commTwo = commTwo.union(jsc.parallelize(Arrays.asList(Arrays.toString(eleOriTwo))));
+                if (middRddCommTwo.size() == limit) {
+                    commTwo = commTwo.union(jsc.parallelize(middRddCommTwo));
+                    middRddCommTwo = Lists.newArrayList();
+                }
+
+                middRddCommOne.add(Arrays.toString(eleOriOne));
+                middRddCommTwo.add(Arrays.toString(eleOriTwo));
 
                 break;
         }
+    }
+
+    private static void combine(ArrayList<List<String>> temp, List<String> V1, List<String> V2) {
+
+        int countOne = Integer.parseInt(V1.get(0));
+        int countTwo = Integer.parseInt(V2.get(0));
+
+        String eleOne = V1.get(1);
+        String eleTwo = V2.get(1);
+
+        String count = String.valueOf(countOne + countTwo);
+
+        StringBuilder sb = new StringBuilder();
+
+        sb.append(eleOne).append("SplitOne").append(eleTwo);
+
+        temp.add(Arrays.asList(count, sb.toString(), V1.get(2)));
     }
 
     // 优化:分区器
